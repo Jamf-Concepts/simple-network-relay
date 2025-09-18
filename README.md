@@ -32,6 +32,8 @@ To build and run the relay server on your local machine, run the following comma
   make
 ```
 
+The relay certificate uses local hostname, so the client device must be on the same network as the relay server.
+
 ### Configure relay on client device
 
 To enable the relay on the client:
@@ -42,7 +44,6 @@ To enable the relay on the client:
             * macOS: in
               `Keychain Access > Open Keychain Access > login > Simple Network Relay Root CA >  When using this certificate: Always Trust`
             * iOS/iPadOS: in `Settings > General > About > Certificate Trust Settings`
-
 
 2) Install configuration profile with Relay payload
     * Install profile `relay.mobileconfig` to the client device for system to start routing traffic to the relay [^1]
@@ -69,18 +70,18 @@ traffic is end-to-end encrypted, so you will only see the QUIC layer and not the
 2) Verify generated relay certificate matches your local hostname. If not, set `HOST` manually in
    `script/generate_certificates`, run `make clean && make` and re-install the certificates.
     ```
-    $ hostname
-    MacBook-Pro.local
+    $ scutil --get LocalHostName
+    MacBook-Pro
 
-    $ openssl x509 -noout -text -in cert/leaf/simple_network_relay.crt | grep DNS
+    $ openssl x509 -noout -text -in cert/simple_network_relay.crt | grep DNS
     DNS:MacBook-Pro.local, IP Address:127.0.0.1
     ```
 
 3) Verify `HTTP3RelayURL` in `relay.mobileconfig` file contains hostname in correct format. If not, set the hostname
    manually in the `relay.mobileconfig` file. The expected format is `https://<hostname>:443`.
     ```
-    $ hostname
-    MacBook-Pro.local
+    $ scutil --get LocalHostName
+    MacBook-Pro
 
     $ grep 'HTTP3RelayURL' relay.mobileconfig -A 1
     <key>HTTP3RelayURL</key>
