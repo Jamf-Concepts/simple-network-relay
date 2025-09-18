@@ -23,19 +23,16 @@ type proxyStatus struct {
 }
 
 var (
-	// statusOK - client can start sending data.
 	statusOK = proxyStatus{
 		code: http.StatusOK,
 	}
-	// statusDestinationUnavailable - fail-open, client should go direct.
-	statusDestinationUnavailable = proxyStatus{
+	statusGoDirect = proxyStatus{
 		code:  http.StatusServiceUnavailable,
-		error: "NetworkRelay; error=destination_unavailable",
+		error: "SimpleNetworkRelay; error=destination_unavailable",
 	}
-	// statusConnectionRefused - fail-close, reject client request.
-	statusConnectionRefused = proxyStatus{
+	statusBlock = proxyStatus{
 		code:  http.StatusBadGateway,
-		error: "NetworkRelay; error=connection_refused",
+		error: "SimpleNetworkRelay; error=connection_refused",
 	}
 )
 
@@ -80,13 +77,13 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Handle only CONNECT TCP requests
 	if r.Method != http.MethodConnect || r.Proto == "connect-udp" {
-		writeHeader(w, statusDestinationUnavailable)
+		writeHeader(w, statusGoDirect)
 		return
 	}
 
 	// Authenticate the request
 	if r.Header.Get("auth") != "secret" {
-		writeHeader(w, statusConnectionRefused)
+		writeHeader(w, statusBlock)
 		return
 	}
 
@@ -96,7 +93,7 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	c, err := dialTCP(r.Context(), r.Host)
 	if err != nil {
 		log.Printf("Failed to connect to '%s': %s", r.Host, err)
-		writeHeader(w, statusDestinationUnavailable)
+		writeHeader(w, statusGoDirect)
 		return
 	}
 

@@ -2,7 +2,8 @@
 # Copyright (c) 2025 JAMF Software, LLC
 
 generate_mobile_config() {
-  HOST=$(hostname)
+  HOST=$(scutil --get LocalHostName || hostname)
+  [[ $HOST != *.local ]] && HOST="${HOST}.local"
   cat > "relay.mobileconfig" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -28,7 +29,7 @@ generate_mobile_config() {
                     </dict>
                 </array>
                 <key>PayloadUUID</key>
-                <string>payloadUUID</string>
+                <string>payloadUUID2</string>
                 <key>PayloadIdentifier</key>
                 <string>payloadIdentifier</string>
                 <key>PayloadVersion</key>
@@ -46,7 +47,7 @@ generate_mobile_config() {
         <key>PayloadType</key>
         <string>Configuration</string>
         <key>PayloadUUID</key>
-        <string>payloadUUID</string>
+        <string>payloadUUID1</string>
         <key>PayloadVersion</key>
         <integer>1</integer>
     </dict>

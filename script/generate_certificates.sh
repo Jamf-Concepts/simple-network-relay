@@ -48,7 +48,8 @@ EOF
 }
 
 generate_leaf_cnf() {
-  HOST=$(hostname)
+  HOST=$(scutil --get LocalHostName || hostname)
+  [[ $HOST != *.local ]] && HOST="${HOST}.local"
   cat > "${LEAF_CNF}" << EOF
 [req]
 default_bits = 2048
