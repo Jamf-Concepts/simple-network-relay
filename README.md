@@ -20,7 +20,7 @@ Relays are available on devices with iOS 17, iPadOS 17, macOS 14 or tvOS 17, or 
 
 ### Build dependencies
 
-* [Go 1.24.0 or later](https://go.dev/doc/install)
+* [Go 1.25.1 or later](https://go.dev/doc/install)
 * [GNU Make](https://www.gnu.org/software/make/)
 * [OpenSSL](https://openssl-library.org/source/)
 
