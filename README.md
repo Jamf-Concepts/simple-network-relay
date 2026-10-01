@@ -34,6 +34,15 @@ To build and run the relay server on your local machine, run the following comma
 
 The relay certificate uses local hostname, so the client device must be on the same network as the relay server.
 
+> [!WARNING]
+> The relay is intended for learning and experiments, not for production. Anyone who holds the auth token from
+> `relay.mobileconfig` can open TCP connections to any destination reachable from the relay host, including services
+> listening on its loopback interface and hosts on its local network. Run it only on trusted networks and keep
+> `cert/` and `relay.mobileconfig` private.
+
+The configure step generates a random auth token in `cert/auth_token.txt` and embeds it in `relay.mobileconfig`.
+If you regenerate it (e.g. by `make clean && make`), re-install the configuration profile on the client device.
+
 ### Configure relay on client device
 
 To enable the relay on the client:
@@ -55,9 +64,10 @@ To enable the relay on the client:
 
 #### Analyze traffic
 
-The HTTP/3 traffic can be inspected with [Wireshark](https://www.wireshark.org/). Configure the Pre-Master-Secret log
-location in `Preferences -> Protocols -> TLS -> (Pre)-Master-Secret log filename` to `/tmp/keys`. Note, that tunneled
-traffic is end-to-end encrypted, so you will only see the QUIC layer and not the actual content.
+The HTTP/3 traffic can be inspected with [Wireshark](https://www.wireshark.org/). TLS key logging is disabled by
+default, enable it by starting the relay with `SSLKEYLOGFILE` set, e.g. `SSLKEYLOGFILE=/tmp/keys make run`. Configure
+the Pre-Master-Secret log location in `Preferences -> Protocols -> TLS -> (Pre)-Master-Secret log filename` to the same
+path. Note, that tunneled traffic is end-to-end encrypted, so you will only see the QUIC layer and not the actual content.
 
 #### Debugging connection issues
 

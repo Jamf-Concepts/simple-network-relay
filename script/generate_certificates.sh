@@ -1,6 +1,7 @@
 #!/bin/bash
-# Copyright (c) 2025 JAMF Software, LLC
+# Copyright (c) 2026 JAMF Software, LLC
 set -e
+umask 077 # readable only by the owner
 
 PASS=cert/pass.txt
 CA_CNF=cert/simple_network_relay_ca.cnf
