@@ -5,7 +5,7 @@ linters:
     - bodyclose
     - godot
     - goheader
-    - gomodguard
+    - gomodguard_v2
     - gosec
     - govet
     - ineffassign
