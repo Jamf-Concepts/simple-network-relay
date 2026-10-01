@@ -87,12 +87,12 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("CONNECT request from '%s' to '%s'", r.RemoteAddr, r.Host)
+	log.Printf("CONNECT request from %q to %q", r.RemoteAddr, r.Host) //nolint:gosec
 
 	// Resolve DNS and open connection to the target server
 	c, err := dialTCP(r.Context(), r.Host)
 	if err != nil {
-		log.Printf("Failed to connect to '%s': %s", r.Host, err)
+		log.Printf("Failed to connect to %q: %s", r.Host, err) //nolint:gosec
 		writeHeader(w, statusGoDirect)
 		return
 	}

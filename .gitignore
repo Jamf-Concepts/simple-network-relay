@@ -2,3 +2,4 @@
 bin/
 cert/
 relay.mobileconfig
+.claude/
