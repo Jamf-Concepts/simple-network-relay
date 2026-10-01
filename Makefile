@@ -1,4 +1,4 @@
-# Copyright (c) 2025 JAMF Software, LLC
+# Copyright (c) 2026 JAMF Software, LLC
 EXECUTABLE = simple-network-relay
 CLIENT_CONFIG_PROFILE="relay.mobileconfig"
 HOST := $(shell hostname)

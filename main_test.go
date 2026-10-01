@@ -1,4 +1,4 @@
-// Copyright (c) 2025 JAMF Software, LLC
+// Copyright (c) 2026 JAMF Software, LLC
 package main
 
 import (
@@ -25,6 +25,7 @@ import (
 
 const (
 	testRelayPort = 8443
+	testAuthToken = "secret"
 	rootCAFile    = "cert/simple_network_relay_root_ca.crt"
 )
 
@@ -44,17 +45,17 @@ func (s streamWrapper) RemoteAddr() net.Addr {
 
 func TestProxyData(t *testing.T) {
 	var keyLogWriter bytes.Buffer
-	s, err := newHTTP3Server(testRelayPort, &keyLogWriter)
+	s, err := newHTTP3Server(testRelayPort, &keyLogWriter, testAuthToken)
 	require.NoError(t, err)
 
 	go func() {
-		err = s.ListenAndServe()
+		err := s.ListenAndServe()
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			panic(err)
 		}
 	}()
 	defer func(s *http3.Server) {
-		err = s.Close()
+		err := s.Close()
 		if err != nil {
 			panic(err)
 		}
@@ -81,6 +82,71 @@ func TestProxyData(t *testing.T) {
 		require.Contains(t, keyLogWriter.String(), "SERVER_TRAFFIC_SECRET_0")
 	})
 
+	t.Run("Client resets stream - close server connection", func(t *testing.T) {
+		serverConns, port := mockTCPServer(t)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		stream := dialRelay(t, ctx)
+		respConnect := sendConnect(t, stream.RequestStream, fmt.Sprintf("127.0.0.1:%s", port))
+		defer respConnect.Body.Close()
+
+		serverConn := <-serverConns
+		defer serverConn.Close()
+
+		stream.CancelRead(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+		stream.CancelWrite(quic.StreamErrorCode(http3.ErrCodeRequestCanceled))
+
+		// Server connection must be closed by the relay, not left waiting for the server
+		require.NoError(t, serverConn.SetReadDeadline(time.Now().Add(2*time.Second)))
+		_, err := serverConn.Read(make([]byte, 1))
+		require.ErrorIs(t, err, io.EOF)
+	})
+
+	t.Run("Server closes connection - close tunnel", func(t *testing.T) {
+		serverConns, port := mockTCPServer(t)
+
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		stream := dialRelay(t, ctx)
+		defer stream.Close()
+
+		respConnect := sendConnect(t, stream.RequestStream, fmt.Sprintf("127.0.0.1:%s", port))
+		defer respConnect.Body.Close()
+
+		serverConn := <-serverConns
+		require.NoError(t, serverConn.Close())
+
+		// Client must see the end of the tunnel even though it did not close its side
+		_, err := io.ReadAll(respConnect.Body)
+		require.NoError(t, err)
+	})
+
+	t.Run("Invalid authority - respond with StatusServiceUnavailable", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		stream := dialRelay(t, ctx)
+		defer stream.Close()
+
+		req := &http.Request{
+			Method: http.MethodConnect,
+			Header: http.Header{"auth": []string{testAuthToken}},
+			Host:   "::1",
+		}
+
+		err = stream.SendRequestHeader(req)
+		require.NoError(t, err)
+
+		resp, err := stream.ReadResponse()
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	})
+
 	t.Run("Non-CONNECT request - respond with StatusServiceUnavailable", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -91,7 +157,7 @@ func TestProxyData(t *testing.T) {
 		req := &http.Request{
 			Method: http.MethodGet,
 			URL:    &url.URL{Path: "/test"},
-			Header: http.Header{"auth": []string{"secret"}},
+			Header: http.Header{"auth": []string{testAuthToken}},
 			Host:   "127.0.0.1:80",
 		}
 
@@ -137,7 +203,7 @@ func TestProxyData(t *testing.T) {
 
 		req := &http.Request{
 			Method: http.MethodConnect,
-			Header: http.Header{"auth": []string{"secret"}},
+			Header: http.Header{"auth": []string{testAuthToken}},
 			Host:   "127.0.0.1:8888",
 		}
 
@@ -160,7 +226,7 @@ func TestProxyData(t *testing.T) {
 
 		req := &http.Request{
 			Method: http.MethodConnect,
-			Header: http.Header{"auth": []string{"secret"}},
+			Header: http.Header{"auth": []string{testAuthToken}},
 			Host:   "unknown-host:80",
 		}
 
@@ -211,7 +277,7 @@ func sendConnect(t *testing.T, str *http3.RequestStream, host string) *http.Resp
 	t.Helper()
 	req := &http.Request{
 		Method: http.MethodConnect,
-		Header: http.Header{"auth": []string{"secret"}},
+		Header: http.Header{"auth": []string{testAuthToken}},
 		Host:   host,
 	}
 
@@ -255,6 +321,24 @@ func loadCACert(t *testing.T, certFile string) *x509.CertPool {
 		require.Fail(t, "append PEM certificate")
 	}
 	return caCertPool
+}
+
+func mockTCPServer(t *testing.T) (<-chan net.Conn, string) {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = l.Close() })
+
+	conns := make(chan net.Conn, 1)
+	go func() {
+		c, err := l.Accept()
+		if err == nil {
+			conns <- c
+		}
+	}()
+
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	return conns, port
 }
 
 func mockServer(t *testing.T, response string) (*httptest.Server, string) {

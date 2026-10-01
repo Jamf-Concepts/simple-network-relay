@@ -1,7 +1,17 @@
 #!/bin/bash
-# Copyright (c) 2025 JAMF Software, LLC
+# Copyright (c) 2026 JAMF Software, LLC
+set -e
+umask 077 # readable only by the owner
+
+AUTH_TOKEN_FILE=cert/auth_token.txt
+
+generate_auth_token() {
+  [ -f ${AUTH_TOKEN_FILE} ] && return
+  openssl rand -hex 32 > ${AUTH_TOKEN_FILE}
+}
 
 generate_mobile_config() {
+  AUTH_TOKEN=$(cat ${AUTH_TOKEN_FILE})
   HOST=$(scutil --get LocalHostName || hostname)
   [[ $HOST != *.local ]] && HOST="${HOST}.local"
   cat > "relay.mobileconfig" << EOF
@@ -24,7 +34,7 @@ generate_mobile_config() {
                         <key>AdditionalHTTPHeaderFields</key>
                         <dict>
                             <key>auth</key>
-                            <string>secret</string>
+                            <string>${AUTH_TOKEN}</string>
                         </dict>
                     </dict>
                 </array>
@@ -55,4 +65,6 @@ generate_mobile_config() {
 EOF
 }
 
+[ -d cert ] || mkdir cert
+generate_auth_token
 generate_mobile_config
