@@ -45,7 +45,7 @@ func (s streamWrapper) RemoteAddr() net.Addr {
 
 func TestProxyData(t *testing.T) {
 	var keyLogWriter bytes.Buffer
-	s, err := newHTTP3Server(testRelayPort, &keyLogWriter, testAuthToken)
+	s, err := newHTTP3Server(testRelayPort, &keyLogWriter, testAuthToken, true)
 	require.NoError(t, err)
 
 	go func() {
@@ -239,6 +239,16 @@ func TestProxyData(t *testing.T) {
 
 		require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	})
+}
+
+func TestDialTCPDeniedDestination(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	for _, authority := range []string{"127.0.0.1:80", "[::1]:80", "10.0.0.1:80", "169.254.169.254:80", "[::ffff:192.168.1.1]:80"} {
+		_, err := dialTCP(ctx, authority, false)
+		require.ErrorIs(t, err, errDestinationNotAllowed, authority)
+	}
 }
 
 func dialRelay(t *testing.T, ctx context.Context) *streamWrapper {
