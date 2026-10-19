@@ -11,14 +11,18 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 	"golang.org/x/sync/errgroup"
 )
+
+var errDestinationNotAllowed = errors.New("destination not allowed")
 
 type proxyStatus struct {
 	code  int
@@ -59,7 +63,7 @@ func main() {
 		log.Printf("Writing TLS keys to %s\n", path) //nolint:gosec
 	}
 
-	s, err := newHTTP3Server(443, keyLog, strings.TrimSpace(string(authToken)))
+	s, err := newHTTP3Server(443, keyLog, strings.TrimSpace(string(authToken)), false)
 	if err != nil {
 		log.Fatalf("Failed to create HTTP/3 server: %v", err)
 	}
@@ -70,7 +74,7 @@ func main() {
 	}
 }
 
-func newHTTP3Server(port int, keyLog io.Writer, authToken string) (*http3.Server, error) {
+func newHTTP3Server(port int, keyLog io.Writer, authToken string, allowLocal bool) (*http3.Server, error) {
 	if authToken == "" {
 		return nil, errors.New("auth token must not be empty")
 	}
@@ -82,7 +86,7 @@ func newHTTP3Server(port int, keyLog io.Writer, authToken string) (*http3.Server
 
 	return &http3.Server{
 		Addr:    fmt.Sprintf(":%d", port),
-		Handler: &relay{authToken: []byte(authToken)},
+		Handler: &relay{authToken: []byte(authToken), allowLocal: allowLocal},
 		TLSConfig: &tls.Config{
 			MinVersion:   tls.VersionTLS13,
 			Certificates: []tls.Certificate{kp},
@@ -94,7 +98,8 @@ func newHTTP3Server(port int, keyLog io.Writer, authToken string) (*http3.Server
 }
 
 type relay struct {
-	authToken []byte
+	authToken  []byte
+	allowLocal bool // allow loopback, private and other non-public destinations, used by tests
 }
 
 func (rl *relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +121,7 @@ func (rl *relay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	log.Printf("CONNECT request from %q to %q", r.RemoteAddr, r.Host) //nolint:gosec
 
 	// Resolve DNS and open connection to the target server
-	c, err := dialTCP(r.Context(), r.Host)
+	c, err := dialTCP(r.Context(), r.Host, rl.allowLocal)
 	if err != nil {
 		log.Printf("Failed to connect to %q: %s", r.Host, err) //nolint:gosec
 		writeHeader(w, statusGoDirect)
@@ -140,7 +145,7 @@ func writeHeader(w http.ResponseWriter, s proxyStatus) {
 	}
 }
 
-func dialTCP(ctx context.Context, authority string) (*net.TCPConn, error) {
+func dialTCP(ctx context.Context, authority string, allowLocal bool) (*net.TCPConn, error) {
 	// CONNECT requires the authority in host:port form
 	host, port, err := net.SplitHostPort(authority)
 	if err != nil {
@@ -156,11 +161,27 @@ func dialTCP(ctx context.Context, authority string) (*net.TCPConn, error) {
 	}
 
 	dial := net.Dialer{Timeout: 5 * time.Second}
+	if !allowLocal {
+		dial.Control = checkDestination
+	}
 	c, err := dial.DialContext(ctx, "tcp", net.JoinHostPort(ip.String(), port))
 	if err != nil {
 		return nil, err
 	}
 	return c.(*net.TCPConn), nil
+}
+
+// checkDestination refuses loopback, private and other non-public addresses. It is a net.Dialer Control
+// hook, so it checks the resolved address right before connecting and no DNS answer can bypass it.
+func checkDestination(_, address string, _ syscall.RawConn) error {
+	ap, err := netip.ParseAddrPort(address)
+	if err != nil {
+		return err
+	}
+	if ip := ap.Addr().Unmap(); !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return fmt.Errorf("%w: %s", errDestinationNotAllowed, ip)
+	}
+	return nil
 }
 
 func resolveDNS(ctx context.Context, host string) (net.IP, error) {
