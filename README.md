@@ -43,6 +43,9 @@ The relay certificate uses local hostname, so the client device must be on the s
 The configure step generates a random auth token in `cert/auth_token.txt` and embeds it in `relay.mobileconfig`.
 If you regenerate it (e.g. by `make clean && make`), re-install the configuration profile on the client device.
 
+The configure step also asks for a password that encrypts the CA private keys. The password is not stored, keep it
+safe if you want to issue new certificates with the existing CA. To run it non-interactively, set `CA_PASS`.
+
 ### Configure relay on client device
 
 To enable the relay on the client:
@@ -65,7 +68,8 @@ To enable the relay on the client:
 #### Analyze traffic
 
 The HTTP/3 traffic can be inspected with [Wireshark](https://www.wireshark.org/). TLS key logging is disabled by
-default, enable it by starting the relay with `SSLKEYLOGFILE` set, e.g. `SSLKEYLOGFILE=$HOME/sslkeys.log make run`. Configure
+default, enable it by starting the relay with `SSLKEYLOGFILE` set, e.g. `SSLKEYLOGFILE=$HOME/sslkeys.log make run`. The
+file must be owned by you and have mode 0600, the relay refuses to start otherwise. Configure
 the Pre-Master-Secret log location in `Preferences -> Protocols -> TLS -> (Pre)-Master-Secret log filename` to the same
 path. Note, that tunneled traffic is end-to-end encrypted, so you will only see the QUIC layer and not the actual content.
 

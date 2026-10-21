@@ -24,6 +24,20 @@ import (
 
 var errDestinationNotAllowed = errors.New("destination not allowed")
 
+// deniedPrefixes are special-purpose ranges that netip does not classify as non-public.
+var deniedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),      // "this network"
+	netip.MustParsePrefix("100.64.0.0/10"),  // shared address space (CGNAT)
+	netip.MustParsePrefix("192.0.0.0/24"),   // IETF protocol assignments
+	netip.MustParsePrefix("198.18.0.0/15"),  // benchmarking
+	netip.MustParsePrefix("240.0.0.0/4"),    // reserved
+	netip.MustParsePrefix("64:ff9b::/96"),   // NAT64, embeds an IPv4 address
+	netip.MustParsePrefix("64:ff9b:1::/48"), // local-use NAT64
+	netip.MustParsePrefix("2001::/32"),      // Teredo
+	netip.MustParsePrefix("2002::/16"),      // 6to4, embeds an IPv4 address
+	netip.MustParsePrefix("fec0::/10"),      // deprecated site-local
+}
+
 type proxyStatus struct {
 	code  int
 	error string
@@ -54,7 +68,7 @@ func main() {
 	// TLS key logging is opt-in, enabled by setting SSLKEYLOGFILE
 	var keyLog io.Writer
 	if path := os.Getenv("SSLKEYLOGFILE"); path != "" {
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600) //nolint:gosec
+		f, err := openKeyLog(path)
 		if err != nil {
 			log.Fatalf("Failed to open TLS key log file: %v", err)
 		}
@@ -72,6 +86,25 @@ func main() {
 	if err = s.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// openKeyLog opens the TLS key log for appending. It refuses symlinks and files that are not owned by
+// the current user or that are accessible by other users, so the secrets cannot leak or be redirected.
+func openKeyLog(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND|syscall.O_NOFOLLOW, 0o600) //nolint:gosec
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != os.Getuid() || fi.Mode().Perm()&0o077 != 0 {
+		_ = f.Close()
+		return nil, fmt.Errorf("%s must be owned by the current user and have mode 0600", path)
+	}
+	return f, nil
 }
 
 func newHTTP3Server(port int, keyLog io.Writer, authToken string, allowLocal bool) (*http3.Server, error) {
@@ -178,8 +211,14 @@ func checkDestination(_, address string, _ syscall.RawConn) error {
 	if err != nil {
 		return err
 	}
-	if ip := ap.Addr().Unmap(); !ip.IsGlobalUnicast() || ip.IsPrivate() {
+	ip := ap.Addr().Unmap()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
 		return fmt.Errorf("%w: %s", errDestinationNotAllowed, ip)
+	}
+	for _, p := range deniedPrefixes {
+		if p.Contains(ip) {
+			return fmt.Errorf("%w: %s", errDestinationNotAllowed, ip)
+		}
 	}
 	return nil
 }

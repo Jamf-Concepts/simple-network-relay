@@ -245,10 +245,49 @@ func TestDialTCPDeniedDestination(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	for _, authority := range []string{"127.0.0.1:80", "[::1]:80", "10.0.0.1:80", "169.254.169.254:80", "[::ffff:192.168.1.1]:80"} {
+	for _, authority := range []string{
+		"127.0.0.1:80", "[::1]:80", "10.0.0.1:80", "169.254.169.254:80", "[::ffff:192.168.1.1]:80",
+		"0.1.2.3:80", "100.64.0.1:80", "198.18.0.1:80", "240.0.0.1:80", "[64:ff9b::a00:1]:80", "[2002:a00:1::1]:80",
+		"[2001::1]:80", "[fec0::1]:80",
+	} {
 		_, err := dialTCP(ctx, authority, false)
 		require.ErrorIs(t, err, errDestinationNotAllowed, authority)
 	}
+}
+
+func TestOpenKeyLog(t *testing.T) {
+	dir := t.TempDir()
+
+	t.Run("New file - create with mode 0600", func(t *testing.T) {
+		path := dir + "/new"
+		f, err := openKeyLog(path)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		fi, err := os.Stat(path)
+		require.NoError(t, err)
+		require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+
+		// Existing private file is reused
+		f, err = openKeyLog(path)
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+	})
+
+	t.Run("File accessible by others - refuse", func(t *testing.T) {
+		path := dir + "/public"
+		require.NoError(t, os.WriteFile(path, nil, 0o600))
+		require.NoError(t, os.Chmod(path, 0o644))
+		_, err := openKeyLog(path)
+		require.Error(t, err)
+	})
+
+	t.Run("Symlink - refuse", func(t *testing.T) {
+		path := dir + "/link"
+		require.NoError(t, os.Symlink(dir+"/target", path))
+		_, err := openKeyLog(path)
+		require.Error(t, err)
+		require.NoFileExists(t, dir+"/target")
+	})
 }
 
 func dialRelay(t *testing.T, ctx context.Context) *streamWrapper {
