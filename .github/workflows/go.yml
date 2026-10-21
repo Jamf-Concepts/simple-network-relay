@@ -46,7 +46,7 @@ jobs:
     - name: Generate certificates
       run: |
         chmod +x script/generate_certificates.sh
-        ./script/generate_certificates.sh
+        CA_PASS=$(openssl rand -hex 16) ./script/generate_certificates.sh
 
     - name: Test
       run: go test -v ./...
